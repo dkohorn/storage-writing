@@ -87,12 +87,14 @@ esp_err_t waveshare_sd_card_init()
     esp_err_t ret;
     // Initialize I2C
     ESP_ERROR_CHECK(i2c_master_init());
+    ESP_LOGI(TAG, "I2C Initialized");
 
     // Control CH422G to pull down the CS pin of the SD
     uint8_t write_buf = 0x01;
     i2c_master_write_to_device(I2C_MASTER_NUM, 0x24, &write_buf, 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
     write_buf = 0x0A;
     i2c_master_write_to_device(I2C_MASTER_NUM, 0x38, &write_buf, 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    ESP_LOGI(TAG, "Successful write to CH422G, pulled down CS pin on SD");
 
     // Options for mounting the filesystem
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
@@ -130,6 +132,10 @@ esp_err_t waveshare_sd_card_init()
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = PIN_NUM_CS; // Set CS pin
     slot_config.host_id = host.slot;  // Set host ID
+
+    //!! Solutions: Extreme delay, pull up (release) CS pin after unmount and send dummy data to ensure a reset before freeing bus, 
+    ESP_LOGW(TAG, "Force 15 second delay");
+    vTaskDelay(15000 / portTICK_PERIOD_MS);
 
     // Mounting filesystem
     ESP_LOGW(TAG, "Mounting filesystem");
@@ -245,20 +251,10 @@ esp_err_t waveshare_sd_card_test()
     esp_vfs_fat_sdcard_unmount(mount_point, card);
     ESP_LOGW(TAG, "Card unmounted");
 
+
     // Deinitialize the SPI bus after all devices are removed
     spi_bus_free(host.slot);
+    ESP_LOGW(TAG, "Bus freed");
+
     return ESP_OK;
 }
-
-void app_main(void)
-{
-    // Initialize SD card 
-    if(waveshare_sd_card_init() == ESP_OK)
-    {
-        // Test SD card functionality 
-        waveshare_sd_card_test();
-    }
-
-    
-}
-
