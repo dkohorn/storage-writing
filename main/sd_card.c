@@ -1,3 +1,5 @@
+//Uses COM5
+
 #include "sd_card.h"
 
 static const char *TAG = "example";
@@ -85,16 +87,21 @@ esp_err_t i2c_master_init(void)
 esp_err_t waveshare_sd_card_init()
 {
     esp_err_t ret;
+
     // Initialize I2C
     ESP_ERROR_CHECK(i2c_master_init());
     ESP_LOGI(TAG, "I2C Initialized");
 
+    ESP_LOGW(TAG, "Before pulling CS Low | MISO: %d, MOSI: %d, CLK: %d", gpio_get_level(PIN_NUM_MISO),gpio_get_level(PIN_NUM_MOSI),gpio_get_level(PIN_NUM_CLK));
     // Control CH422G to pull down the CS pin of the SD
     uint8_t write_buf = 0x01;
     i2c_master_write_to_device(I2C_MASTER_NUM, 0x24, &write_buf, 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
     write_buf = 0x0A;
     i2c_master_write_to_device(I2C_MASTER_NUM, 0x38, &write_buf, 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
     ESP_LOGI(TAG, "Successful write to CH422G, pulled down CS pin on SD");
+    ESP_LOGW(TAG, "After pulling CS Low | MISO: %d, MOSI: %d, CLK: %d", gpio_get_level(PIN_NUM_MISO),gpio_get_level(PIN_NUM_MOSI),gpio_get_level(PIN_NUM_CLK));
+
+    vTaskDelay(200 / portTICK_PERIOD_MS);
 
     // Options for mounting the filesystem
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
@@ -128,16 +135,16 @@ esp_err_t waveshare_sd_card_init()
         return ESP_FAIL;
     }
 
+
     // Configure SD card slot
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = PIN_NUM_CS; // Set CS pin
     slot_config.host_id = host.slot;  // Set host ID
 
-    //!! Solutions: Extreme delay, pull up (release) CS pin after unmount and send dummy data to ensure a reset before freeing bus, 
-    ESP_LOGW(TAG, "Force 15 second delay");
-    vTaskDelay(15000 / portTICK_PERIOD_MS);
 
     // Mounting filesystem
+    //ESP_LOGW(TAG, "Manual 15 second delay");
+    //vTaskDelay(15000 / portTICK_PERIOD_MS);
     ESP_LOGW(TAG, "Mounting filesystem");
     ret = esp_vfs_fat_sdspi_mount(mount_point, &host, &slot_config, &mount_config, &card);
 
@@ -249,12 +256,13 @@ esp_err_t waveshare_sd_card_test()
 
     // All done, unmount partition and disable SPI peripheral
     esp_vfs_fat_sdcard_unmount(mount_point, card);
-    ESP_LOGW(TAG, "Card unmounted");
-
 
     // Deinitialize the SPI bus after all devices are removed
     spi_bus_free(host.slot);
-    ESP_LOGW(TAG, "Bus freed");
 
     return ESP_OK;
 }
+    
+
+
+
