@@ -2,7 +2,7 @@
 
 #include "sd_card.h"
 
-static const char *TAG = "example";
+static const char *TAG = "SD Card";
 
 sdmmc_card_t *card;
 const char mount_point[] = MOUNT_POINT;

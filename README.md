@@ -1,2 +1,2 @@
 # storage-writing
-Code for writing to connected USB or SD card.
+Check SD Card and USB Stick folders for individual info.

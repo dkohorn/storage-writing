@@ -17,7 +17,5 @@ void app_main(void)
         // Test SD card functionality 
         waveshare_sd_card_test();
     }
-
-    
 }
 
