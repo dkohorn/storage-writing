@@ -92,14 +92,13 @@ esp_err_t waveshare_sd_card_init()
     ESP_ERROR_CHECK(i2c_master_init());
     ESP_LOGI(TAG, "I2C Initialized");
 
-    ESP_LOGW(TAG, "Before pulling CS Low | MISO: %d, MOSI: %d, CLK: %d", gpio_get_level(PIN_NUM_MISO),gpio_get_level(PIN_NUM_MOSI),gpio_get_level(PIN_NUM_CLK));
+    
     // Control CH422G to pull down the CS pin of the SD
     uint8_t write_buf = 0x01;
     i2c_master_write_to_device(I2C_MASTER_NUM, 0x24, &write_buf, 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
     write_buf = 0x0A;
     i2c_master_write_to_device(I2C_MASTER_NUM, 0x38, &write_buf, 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
-    ESP_LOGI(TAG, "Successful write to CH422G, pulled down CS pin on SD");
-    ESP_LOGW(TAG, "After pulling CS Low | MISO: %d, MOSI: %d, CLK: %d", gpio_get_level(PIN_NUM_MISO),gpio_get_level(PIN_NUM_MOSI),gpio_get_level(PIN_NUM_CLK));
+    ESP_LOGI(TAG, "Pulled down CS pin on SD");
 
     vTaskDelay(200 / portTICK_PERIOD_MS);
 
@@ -142,9 +141,10 @@ esp_err_t waveshare_sd_card_init()
     slot_config.host_id = host.slot;  // Set host ID
 
 
-    // Mounting filesystem
-    //ESP_LOGW(TAG, "Manual 15 second delay");
-    //vTaskDelay(15000 / portTICK_PERIOD_MS);
+    //? Temp solution
+    //? ESP_LOGW(TAG, "Manual 15 second delay");
+    //? vTaskDelay(15000 / portTICK_PERIOD_MS);
+
     ESP_LOGW(TAG, "Mounting filesystem");
     ret = esp_vfs_fat_sdspi_mount(mount_point, &host, &slot_config, &mount_config, &card);
 
@@ -217,48 +217,59 @@ esp_err_t waveshare_sd_card_test()
         return ESP_FAIL;
     }
 
-    // Format FATFS
-    ret = esp_vfs_fat_sdcard_format(mount_point, card);
-    if (ret != ESP_OK)
-    {
-        // Failed to format FATFS
-        ESP_LOGW(TAG, "Failed to format FATFS (%s)", esp_err_to_name(ret));
-        return ESP_FAIL;
-    }
+    //!! The formatting just takes up time I dont care about it right now
+    // // Format FATFS
+    // ret = esp_vfs_fat_sdcard_format(mount_point, card);
+    // if (ret != ESP_OK)
+    // {
+    //     // Failed to format FATFS
+    //     ESP_LOGW(TAG, "Failed to format FATFS (%s)", esp_err_to_name(ret));
+    //     return ESP_FAIL;
+    // }
 
-    // Check if file still exists after formatting
-    if (stat(file_foo, &st) == 0)
-    {
-        ESP_LOGW(TAG, "file still exists");
-        return ESP_FAIL;
-    }
-    else
-    {
-        ESP_LOGW(TAG, "file doesnt exist, format done");
-    }
+    // // Check if file still exists after formatting
+    // if (stat(file_foo, &st) == 0)
+    // {
+    //     ESP_LOGW(TAG, "file still exists");
+    //     return ESP_FAIL;
+    // }
+    // else
+    // {
+    //     ESP_LOGW(TAG, "file doesnt exist, format done");
+    // }
 
-    // Create a new file "nihao.txt" after formatting
-    const char *file_nihao = MOUNT_POINT "/nihao.txt";
-    memset(data, 0, EXAMPLE_MAX_CHAR_SIZE);                                     // Clear the data buffer
-    snprintf(data, EXAMPLE_MAX_CHAR_SIZE, "%s %s!\n", "Nihao", card->cid.name); // Writing data
-    ret = s_example_write_file(file_nihao, data);                               // Writing data to a file
-    if (ret != ESP_OK)
-    {
-        return ESP_FAIL;
-    }
+    // // Create a new file "nihao.txt" after formatting
+    // const char *file_nihao = MOUNT_POINT "/nihao.txt";
+    // memset(data, 0, EXAMPLE_MAX_CHAR_SIZE);                                     // Clear the data buffer
+    // snprintf(data, EXAMPLE_MAX_CHAR_SIZE, "%s %s!\n", "Nihao", card->cid.name); // Writing data
+    // ret = s_example_write_file(file_nihao, data);                               // Writing data to a file
+    // if (ret != ESP_OK)
+    // {
+    //     return ESP_FAIL;
+    // }
 
-    // Open and read the newly created file
-    ret = s_example_read_file(file_nihao);
-    if (ret != ESP_OK)
-    {
-        return ESP_FAIL;
-    }
+    // // Open and read the newly created file
+    // ret = s_example_read_file(file_nihao);
+    // if (ret != ESP_OK)
+    // {
+    //     return ESP_FAIL;
+    // }
 
     // All done, unmount partition and disable SPI peripheral
     esp_vfs_fat_sdcard_unmount(mount_point, card);
 
+    //!! I think this works?
+    // Reset CH422G output: release CS pin (set high)
+    uint8_t write_buf = 0x02; // Select output group 
+    i2c_master_write_to_device(I2C_MASTER_NUM, 0x24, &write_buf, 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    write_buf = 0x02;         // Set bit controlling CS high again (e.g., 0x0E = 00001110)
+    i2c_master_write_to_device(I2C_MASTER_NUM, 0x38, &write_buf, 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    ESP_LOGW(TAG, "CS pin set back to high");    
+
     // Deinitialize the SPI bus after all devices are removed
     spi_bus_free(host.slot);
+
+    
 
     return ESP_OK;
 }
