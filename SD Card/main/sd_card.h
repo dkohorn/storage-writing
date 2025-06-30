@@ -30,7 +30,14 @@
 #define PIN_NUM_CS CONFIG_EXAMPLE_PIN_CS     /*!< Pin number for CS CS  */
 
 // Function prototypes for initializing and testing SD card functions
-esp_err_t waveshare_sd_card_init();
-esp_err_t waveshare_sd_card_test();
+esp_err_t sd_card_init();
+
+esp_err_t create_file(const char *path);
+esp_err_t delete_file(const char *path);
+esp_err_t write_file(const char *path, float time, float temp, float pressure);
+esp_err_t read_file(const char *path);
+esp_err_t export_file(const char *path);
+
+esp_err_t sd_card_test();
 
 #endif
