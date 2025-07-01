@@ -17,9 +17,6 @@
 #define I2C_MASTER_RX_BUF_DISABLE 0             /*!< I2C master doesn't need buffer  */
 #define I2C_MASTER_TIMEOUT_MS 1000              /*!< I2C master timeout in milliseconds */
 
-// Maximum character size for file operations
-#define EXAMPLE_MAX_CHAR_SIZE 64
-
 // Mount point for the SD card
 #define MOUNT_POINT "/sdcard"
 
@@ -27,17 +24,51 @@
 #define PIN_NUM_MISO CONFIG_EXAMPLE_PIN_MISO /*!< Pin number for MISO    */
 #define PIN_NUM_MOSI CONFIG_EXAMPLE_PIN_MOSI /*!< Pin number for MOSI   */
 #define PIN_NUM_CLK CONFIG_EXAMPLE_PIN_CLK   /*!< Pin number for CLK    */
-#define PIN_NUM_CS CONFIG_EXAMPLE_PIN_CS     /*!< Pin number for CS CS  */
+#define PIN_NUM_CS CONFIG_EXAMPLE_PIN_CS     /*!< Pin number for CS  */
 
-// Function prototypes for initializing and testing SD card functions
+
+/**
+ * Initialize SPI bus and mount the SD card
+ * @return: ESP_OK on success, ESP_FAIL otherwise
+ */
 esp_err_t sd_card_init();
 
+/**
+ * Unmount the SD card and free the SPI bus
+ * @return: ESP_OK on success, ESP_FAIL otherwise
+ */
+esp_err_t sd_card_eject();
+
+/**
+ * Create a new file or reset an existing file on the SD card
+ * @param path: File path on the SD
+ * @return: ESP_OK on success, ESP_FAIL otherwise
+ */
 esp_err_t create_file(const char *path);
+
+/**
+ * Delete a file on the SD card
+ * @param path: File path on the SD
+ * @return: ESP_OK on success, ESP_FAIL otherwise
+ */
 esp_err_t delete_file(const char *path);
-esp_err_t write_file(const char *path, float time, float temp, float pressure);
-esp_err_t read_file(const char *path);
+
+/**
+ * Write a new reading entry to an existing file on the SD card
+ * @param path: File path on the SD
+ * @param timestamp: The timestamp of a reading to write to the file
+ * @param temp: The temperature of the reading to write to the file
+ * @param pressure: The pressure of a reading to write to the file
+ * @return: ESP_OK on success, ESP_FAIL otherwise
+ */
+esp_err_t write_file(const char *path, float timestamp, float temp, float pressure);
+
+/**
+ * Export data from an existing file on the SD card to a USB
+ * @param path: File path on the SD
+ * @return: ESP_OK on success, ESP_FAIL otherwise
+ */
 esp_err_t export_file(const char *path);
 
-esp_err_t sd_card_test();
 
 #endif

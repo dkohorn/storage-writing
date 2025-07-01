@@ -1,77 +1,70 @@
 #include "sd_card.h"
 
-static const char *TAG = "SD Card";
-
 sdmmc_card_t *card;
 const char mount_point[] = MOUNT_POINT;
 sdmmc_host_t host = SDSPI_HOST_DEFAULT();
 
-
-/**
- * Can be used on initialization and to reset a file
- */
+//Create a new file or reset an existing file on the SD card
 esp_err_t create_file(const char *path) {
     FILE *f = fopen(path, "w");
     if (f == NULL) {
-        ESP_LOGE(TAG, "Failed create file");
         return ESP_FAIL;
     }
-    fprintf(f, "Timestamp, Temperature, Pressure\n");
 
+    //Add header to the file
+#ifdef CONFIG_FILE_TYPE_CSV
+        fprintf(f, "Timestamp, Temperature, Pressure\n");
+#endif
     fclose(f);
     return ESP_OK;
 }
 
+//Delete a file from the SD card
 esp_err_t delete_file(const char *path) {
-    // Check if destination file exists before renaming
     struct stat st;
-    if (stat(path, &st) == 0){
-        // Delete it if it exists
-        unlink(path);
-    }
-    else {
-        ESP_LOGE(TAG, "Failed to delete file");
+    if (stat(path, &st) != 0) { //Ensure file exists
         return ESP_FAIL;
     }
+    unlink(path);
     return ESP_OK;
 }
 
-esp_err_t write_file(const char *path, float time, float temp, float pressure) {
+//Write a new reading entry to an existing file on the SD card
+esp_err_t write_file(const char *path, float timestamp, float temp, float pressure) {
     FILE *f = fopen(path, "a");
     if (f == NULL) {
-        ESP_LOGE(TAG, "Failed to open file for writing");
         return ESP_FAIL;
     }
 
-    fprintf(f, "%f, %f, %f\n", time, temp, pressure);
+    //Write data to the file
+#ifdef CONFIG_FILE_TYPE_CSV
+        fprintf(f, "%f, %f, %f\n", timestamp, temp, pressure);
+#endif
+    
     fclose(f);
-
     return ESP_OK;
 }
 
-
-/**
- * Export file data to connected USB
- */
+//Export data from an existing file on the SD card
 esp_err_t export_file(const char *path) {
     FILE *f = fopen(path, "r"); 
     if (f == NULL) {
-        ESP_LOGI(TAG, "Failed to open file for export");
+        return ESP_FAIL;
     }
 
-    char line[1024];
-
+    //!Print data on a file as placeholder until further functionality is implemented
+    printf("\n"); 
+    char line[64];
     while (fgets(line, sizeof(line), f)) {
         printf("%s", line); 
     }
-
     fclose(f);
+    printf("\n"); 
+
     return ESP_OK;
 }
 
-/**
- * I2C master initialization
- */
+//I2C master initialization for communicating with the CH422G chip on a Waveshare board
 esp_err_t i2c_master_init(void) {
     int i2c_master_port = I2C_MASTER_NUM;
 
@@ -88,10 +81,8 @@ esp_err_t i2c_master_init(void) {
     return i2c_driver_install(i2c_master_port, conf.mode, I2C_MASTER_RX_BUF_DISABLE, I2C_MASTER_TX_BUF_DISABLE, 0);
 }
 
-/**
- * Pull chip select pin low through the CH422G 
- */
-static void pull_cs_low(void) {
+//Pull the CS pin low through the I2C connection
+static void pull_cs_low_i2c(void) {
     uint8_t write_buf = 0x01;
     i2c_master_write_to_device(I2C_MASTER_NUM, 0x24, &write_buf, 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
     write_buf = 0x0A;
@@ -99,9 +90,7 @@ static void pull_cs_low(void) {
 }
 
 
-/**
- * SPI bus initialization
- */
+//Initialize the SPI bus to communicate with the SD card
 esp_err_t spi_bus_init(void) {
     spi_bus_config_t bus_cfg = {
         .mosi_io_num = PIN_NUM_MOSI, // Set MOSI pin
@@ -115,128 +104,49 @@ esp_err_t spi_bus_init(void) {
     return spi_bus_initialize(host.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
 }
 
-/**
- * Mount the SD card
- */
+//Mount the SD card
 esp_err_t mount_sd(void) {
     esp_err_t ret;
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-#ifdef CONFIG_EXAMPLE_FORMAT_IF_MOUNT_FAILED
-        .format_if_mount_failed = true, // If mount fails, format the card
-#else
-        .format_if_mount_failed = false, // If mount fails, do not format card
-#endif
-        .max_files = 5,                   // Maximum number of files
-        .allocation_unit_size = 16 * 1024 // Set allocation unit size
+        .format_if_mount_failed = true,   // If mount fails, format the card
+        .max_files = 5,                   
+        .allocation_unit_size = 16 * 1024 
     };
 
     // Configure SD card slot
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slot_config.gpio_cs = PIN_NUM_CS; // Set CS pin
-    slot_config.host_id = host.slot;  // Set host ID
+    slot_config.gpio_cs = PIN_NUM_CS; 
+    slot_config.host_id = host.slot;  
 
     ret = esp_vfs_fat_sdspi_mount(mount_point, &host, &slot_config, &mount_config, &card);
-    if (ret != ESP_OK)
-    {
-        if (ret == ESP_FAIL)
-        {
-            // Failed to mount filesystem
-            ESP_LOGE(TAG, "Failed to mount filesystem. If you want the card to be formatted, set the CONFIG_EXAMPLE_FORMAT_IF_MOUNT_FAILED menuconfig option.");
-        }
-        else
-        {
-            // Failed to initialize the card
-            ESP_LOGE(TAG, "Failed to initialize the card (%s). Make sure SD card lines have pull-up resistors in place.", esp_err_to_name(ret));
-        }
-        ret = ESP_FAIL;
-    }
-
     return ret;
 }
 
-esp_err_t eject_sd() {
-    esp_vfs_fat_sdcard_unmount(mount_point, card);
-    spi_bus_free(host.slot);
+esp_err_t sd_card_eject() {
+    esp_err_t ret;
+
+    ret = esp_vfs_fat_sdcard_unmount(mount_point, card);
+    if (ret != ESP_OK) {           
+        return ESP_FAIL;
+    }
+    ret = spi_bus_free(host.slot);
+    if (ret != ESP_OK) {          
+        return ESP_FAIL;
+    }
 
     return ESP_OK;
 }
 
 esp_err_t sd_card_init() {
-    ESP_ERROR_CHECK(i2c_master_init());
-    ESP_LOGW(TAG, "I2C master initialized.");
-
-    pull_cs_low();
-    ESP_LOGW(TAG, "CS pulled low.");
-
-    ESP_ERROR_CHECK(spi_bus_init());
-    ESP_LOGW(TAG, "SPI bus initialized.");
-
-    ESP_ERROR_CHECK(mount_sd());
-    ESP_LOGW(TAG, "SD card mounted.");
-
-    return ESP_OK;
-}
-
-esp_err_t sd_card_test()
-{
-    esp_err_t ret;
-     const char *fpath = MOUNT_POINT "/datatest.csv";
-
-    //Create a file
-    ret = create_file(fpath);
-    if (ret != ESP_OK) {
-        return ESP_FAIL;
-    }
-
-    //Test writing twice
-    ret = write_file(fpath, 105.4f, 69.1f, 14.7f);
-    if (ret != ESP_OK) {
-        return ESP_FAIL;
-    }
-    ret = write_file(fpath, 62.0f, 74.9f, 15.2f);
-    if (ret != ESP_OK) {
-        return ESP_FAIL;
-    }
-
-    //Export the file data
-    ret = export_file(fpath);
-    if (ret != ESP_OK) {
-        return ESP_FAIL;
-    }
-
-    //Reset the file
-    ret = create_file(fpath);
-    if (ret != ESP_OK) {
-        return ESP_FAIL;
-    }
-
-    //Ensure file is empty now
-    ret = export_file(fpath);
-    if (ret != ESP_OK) {
-        return ESP_FAIL;
-    }
-
-    //Delete the file
-    delete_file(fpath);
-    if (ret != ESP_OK) {
-        return ESP_FAIL;
-    }
-
-    //Check that file is properly deleted
-    FILE *f = fopen(fpath, "r");
-    if (f == NULL) {
-        ESP_LOGI(TAG, "File properly deleted.");
-    }
-    else {
-        ESP_LOGW(TAG, "File was NOT deleted.");
-        fclose(f);
-    }
-
-
-    // All done, unmount partition and disable SPI peripheral
-    eject_sd();
-    ESP_LOGW(TAG, "SD Card ejected");
+    //These boards have the CS pin on their CH422G chip which needs to be controlled via I2C
+#ifdef CONFIG_BOARD_TYPE_WAVESHARE_S3_TOUCH_LCD
+        ESP_ERROR_CHECK(i2c_master_init());
+        pull_cs_low_i2c();
+#endif 
     
+    ESP_ERROR_CHECK(spi_bus_init());
+    ESP_ERROR_CHECK(mount_sd());
+
     return ESP_OK;
 }
