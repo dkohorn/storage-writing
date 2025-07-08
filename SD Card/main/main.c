@@ -1,83 +1,55 @@
 #include "sd_card.h"
+#include "driver/i2c.h"
 
-static const char *TAG = "TEST";
+void app_main(void) {
+    //I2C configuration
+    i2c_config_t i2c_conf = {
+        .mode = I2C_MODE_MASTER,                
+        .sda_io_num = 8,                        
+        .scl_io_num = 9,                        
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,    
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,    
+        .master.clk_speed = 400000,      
+    };
+    i2c_param_config(0, &i2c_conf);
+    i2c_driver_install(0, i2c_conf.mode, 0, 0, 0);
 
-esp_err_t sd_card_test()
-{
-    esp_err_t ret;
-     const char *fpath = MOUNT_POINT "/datatest.csv";
+    //Pull CS pin low using I2C
+    uint8_t write_buf = 0x01;
+    i2c_master_write_to_device(0, 0x24, &write_buf, 1, 1000 / portTICK_PERIOD_MS);
+    write_buf = 0x0A;
+    i2c_master_write_to_device(0, 0x38, &write_buf, 1, 1000 / portTICK_PERIOD_MS);
 
-    //Create a file
-    ret = create_file(fpath);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to create file");
-        return ESP_FAIL;
-    }
+    //SPI bus init
+    spi_bus_config_t bus_cfg = {
+        .mosi_io_num = PIN_NUM_MOSI, 
+        .miso_io_num = PIN_NUM_MISO, 
+        .sclk_io_num = PIN_NUM_CLK,  
+        .quadwp_io_num = -1,         // Not used
+        .quadhd_io_num = -1,         // Not used
+        .max_transfer_sz = 4000,     
+    };
+    spi_bus_initialize(CONFIG_SPI_BUS, &bus_cfg, SDSPI_DEFAULT_DMA);
 
-    //Test writing twice
-    ret = write_file(fpath, 105.4f, 69.1f, 14.7f);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to open file for writing(1)");
-        return ESP_FAIL;
-    }
-    ret = write_file(fpath, 62.0f, 74.9f, 15.2f);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to open file for writing(2)");
-        return ESP_FAIL;
-    }
+    //!Library function
+    sd_init();
+        
+    //Write to and read from a file on the SD
+    const char *fpath = MOUNT_POINT "/test.txt";
+    FILE *f = fopen(fpath, "w");
+    fprintf(f, "Luke, I am your father...");
+    fclose(f);
 
-    //Export the file data
-    ret = export_file(fpath);
-    if (ret != ESP_OK) {
-        ESP_LOGI(TAG, "Failed to open file for export");
-        return ESP_FAIL;
-    }
+    char line[64];
+    f = fopen(fpath, "r");
+    printf("Read from file: \n"); 
+    fgets(line, sizeof(line), f);
+    printf("%s\n", line);
+    fclose(f);
 
-    //Reset the file
-    ret = create_file(fpath);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to reset file");
-        return ESP_FAIL;
-    }
-
-    //Ensure file is empty now
-    ret = export_file(fpath);
-    if (ret != ESP_OK) {
-        ESP_LOGI(TAG, "Failed to open file for export");
-        return ESP_FAIL;
-    }
-
-    //Delete the file
-    delete_file(fpath);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to delete file");
-        return ESP_FAIL;
-    }
-
-    //Check that file is properly deleted
-    FILE *f = fopen(fpath, "r");
-    if (f != NULL) {
-        ESP_LOGE(TAG, "File was NOT deleted.");
-        fclose(f);
-    }
-
-    // All done, unmount partition and disable SPI peripheral
-    sd_card_eject();
-    ESP_LOGW(TAG, "SD Card ejected");
+    //!Library function
+    sd_eject();
     
-    return ESP_OK;
-}
-
-void app_main(void)
-{
-    // Initialize SD card 
-    if(sd_card_init() == ESP_OK)
-    {
-        ESP_LOGW(TAG, "SD Card Initialized");
-        // Test SD card functionality 
-        sd_card_test();
-    }
-
-    
+    spi_bus_free(CONFIG_SPI_BUS);
 }
 

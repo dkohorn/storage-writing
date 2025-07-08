@@ -1,31 +1,16 @@
 /*
- * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: Unlicense OR CC0-1.0
- */
-
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
-#include <sys/stat.h>
-#include <dirent.h>
-#include <inttypes.h>
-#include "sdkconfig.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/queue.h"
-#include "esp_timer.h"
-#include "esp_err.h"
-#include "esp_log.h"
-#include "usb/usb_host.h"
-#include "usb/msc_host.h"
-#include "usb/msc_host_vfs.h"
-#include "ffconf.h"
-#include "errno.h"
-#include "driver/gpio.h"
+ ** Digital Rack Firmware. (c) 2024 Silver Falls Capital. All Rights Reserved
+ **
+ ** This code is unlicensed and may not be copied, used, modified,
+ ** compiled, run, or distributed in any form without the explicit
+ ** written permission of Silver Falls Capital.
+ **
+ ** Author(s): David Kohorn dkohorn@silverfallscapital.com
+ **/
+#include "usb_stick.h"
 
 static const char *TAG = "example";
-#define MNT_PATH         "/usb"     // Path in the Virtual File System, where the USB flash drive is going to be mounted
+
 #define APP_QUIT_PIN     GPIO_NUM_0 // BOOT button on most boards
 #define BUFFER_SIZE      4096       // The read/write performance can be improved with larger buffer for the cost of RAM, 4kB is enough for most usecases
 
@@ -180,25 +165,19 @@ void speed_test(void)
     assert(data);
 
     ESP_LOGI(TAG, "Writing to file %s", TEST_FILE);
-    test_start = esp_timer_get_time();
     for (int i = 0; i < ITERATIONS; i++) {
         if (fwrite(data, BUFFER_SIZE, 1, f) == 0) {
             return;
         }
     }
-    test_end = esp_timer_get_time();
-    ESP_LOGI(TAG, "Write speed %1.2f MiB/s", (BUFFER_SIZE * ITERATIONS) / (float)(test_end - test_start));
     rewind(f);
 
     ESP_LOGI(TAG, "Reading from file %s", TEST_FILE);
-    test_start = esp_timer_get_time();
     for (int i = 0; i < ITERATIONS; i++) {
         if (0 == fread(data, BUFFER_SIZE, 1, f)) {
             return;
         }
     }
-    test_end = esp_timer_get_time();
-    ESP_LOGI(TAG, "Read speed %1.2f MiB/s", (BUFFER_SIZE * ITERATIONS) / (float)(test_end - test_start));
 
     fclose(f);
     free(data);
@@ -248,97 +227,4 @@ static void usb_task(void *args)
     vTaskDelete(NULL);
 }
 
-void app_main(void)
-{
-    // Create FreeRTOS primitives
-    app_queue = xQueueCreate(5, sizeof(app_message_t));
-    assert(app_queue);
 
-    BaseType_t task_created = xTaskCreate(usb_task, "usb_task", 4096, NULL, 2, NULL);
-    assert(task_created);
-
-    // Init BOOT button: Pressing the button simulates app request to exit
-    // It will disconnect the USB device and uninstall the MSC driver and USB Host Lib
-    const gpio_config_t input_pin = {
-        .pin_bit_mask = BIT64(APP_QUIT_PIN),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .intr_type = GPIO_INTR_NEGEDGE,
-    };
-    ESP_ERROR_CHECK(gpio_config(&input_pin));
-    ESP_ERROR_CHECK(gpio_install_isr_service(ESP_INTR_FLAG_LEVEL1));
-    ESP_ERROR_CHECK(gpio_isr_handler_add(APP_QUIT_PIN, gpio_cb, NULL));
-
-    ESP_LOGI(TAG, "Waiting for USB flash drive to be connected");
-    msc_host_device_handle_t msc_device = NULL;
-    msc_host_vfs_handle_t vfs_handle = NULL;
-
-    // Perform all example operations in a loop to allow USB reconnections
-    while (1) {
-        app_message_t msg;
-        xQueueReceive(app_queue, &msg, portMAX_DELAY);
-
-        if (msg.id == APP_DEVICE_CONNECTED) {
-            if (dev_present) {
-                ESP_LOGW(TAG, "MSC Example handles only one device at a time");
-            } else {
-                // 0. Change flag
-                dev_present = true;
-                // 1. MSC flash drive connected. Open it and map it to Virtual File System
-                ESP_ERROR_CHECK(msc_host_install_device(msg.data.new_dev_address, &msc_device));
-                const esp_vfs_fat_mount_config_t mount_config = {
-                    .format_if_mount_failed = false,
-                    .max_files = 3,
-                    .allocation_unit_size = 8192,
-                };
-                ESP_ERROR_CHECK(msc_host_vfs_register(msc_device, MNT_PATH, &mount_config, &vfs_handle));
-
-                // 2. Print information about the connected disk
-                msc_host_device_info_t info;
-                ESP_ERROR_CHECK(msc_host_get_device_info(msc_device, &info));
-                msc_host_print_descriptors(msc_device);
-                print_device_info(&info);
-
-                // 3. List all the files in root directory
-                ESP_LOGI(TAG, "ls command output:");
-                struct dirent *d;
-                DIR *dh = opendir(MNT_PATH);
-                assert(dh);
-                while ((d = readdir(dh)) != NULL) {
-                    printf("%s\n", d->d_name);
-                }
-                closedir(dh);
-
-                // 4. The disk is mounted to Virtual File System, perform some basic demo file operation
-                file_operations();
-
-                // 5. Perform speed test
-                speed_test();
-
-                ESP_LOGI(TAG, "Example finished, you can disconnect the USB flash drive");
-            }
-        }
-        if ((msg.id == APP_DEVICE_DISCONNECTED) || (msg.id == APP_QUIT)) {
-            if (dev_present) {
-                dev_present = false;
-                if (vfs_handle) {
-                    ESP_ERROR_CHECK(msc_host_vfs_unregister(vfs_handle));
-                    vfs_handle = NULL;
-                }
-                if (msc_device) {
-                    ESP_ERROR_CHECK(msc_host_uninstall_device(msc_device));
-                    msc_device = NULL;
-                }
-            }
-            if (msg.id == APP_QUIT) {
-                // This will cause the usb_task to exit
-                ESP_ERROR_CHECK(msc_host_uninstall());
-                break;
-            }
-        }
-    }
-
-    ESP_LOGI(TAG, "Done");
-    gpio_isr_handler_remove(APP_QUIT_PIN);
-    vQueueDelete(app_queue);
-}

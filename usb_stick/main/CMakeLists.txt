@@ -1,0 +1,11 @@
+idf_component_register(
+    SRCS 
+        "usb_stick.c"
+        "usb_tester.c"
+    INCLUDE_DIRS 
+        ""
+    REQUIRES 
+        "driver"
+        "fatfs"
+        "usb"
+)
